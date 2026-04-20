@@ -3033,6 +3033,15 @@ def _to_async_client(sync_client, model: str, is_vision: bool = False):
         async_kwargs["default_headers"] = {"User-Agent": "claude-code/0.1.0"}
     elif base_url_host_matches(sync_base_url, "integrate.api.nvidia.com"):
         async_kwargs["default_headers"] = build_nvidia_nim_headers(sync_base_url)
+    elif base_url_host_matches(sync_base_url, "api.z.ai"):
+        # Z.AI Coding plan Vision Understanding unlock — preserve the X-Title
+        # header from the sync client into the async one. _to_async_client
+        # rebuilds AsyncOpenAI from scratch and doesn't inherit default_headers
+        # from the sync client, so we re-apply here.
+        async_kwargs["default_headers"] = {
+            "X-Title": "4.5V MCP Local",
+            "Accept-Language": "en-US,en",
+        }
     else:
         # Fall back to profile.default_headers for providers that declare
         # client-level headers on their ProviderProfile (e.g. attribution
@@ -3296,6 +3305,15 @@ def resolve_provider_client(
                 )
             elif base_url_host_matches(custom_base, "integrate.api.nvidia.com"):
                 extra["default_headers"] = build_nvidia_nim_headers(custom_base)
+            elif base_url_host_matches(custom_base, "api.z.ai"):
+                # Z.AI Coding plan Vision Understanding unlock — see comment in
+                # the named-provider headers block below. Same headers needed
+                # when operators configure auxiliary.vision.base_url directly
+                # (custom-endpoint path).
+                extra["default_headers"] = {
+                    "X-Title": "4.5V MCP Local",
+                    "Accept-Language": "en-US,en",
+                }
             else:
                 # Fall back to profile.default_headers for providers that
                 # declare client-level attribution headers on their profile.
@@ -3541,6 +3559,17 @@ def resolve_provider_client(
             ))
         elif base_url_host_matches(base_url, "integrate.api.nvidia.com"):
             headers.update(build_nvidia_nim_headers(base_url))
+        elif provider == "zai" or "api.z.ai" in base_url.lower():
+            # Z.AI Coding plan "Vision Understanding" unlock. When these two
+            # headers are present, Z.AI routes /paas/v4/chat/completions calls
+            # through the Coding plan's 5-hour prompt pool instead of the
+            # pay-as-you-go wallet. Without them, calls to glm-*v models (and
+            # other vision models) return {"code":"1113","message":"Insufficient
+            # balance or no resource package"}. Reverse-engineered from
+            # @z_ai/mcp-server's chat-service.js. See Silverbullet
+            # "Z.AI Vision Hack" page.
+            headers["X-Title"] = "4.5V MCP Local"
+            headers["Accept-Language"] = "en-US,en"
         else:
             # Fall back to profile.default_headers for providers that declare
             # client-level attribution headers on their profile (e.g. GMI
@@ -4529,6 +4558,22 @@ def _build_call_kwargs(
     merged_extra = dict(extra_body or {})
     if provider == "nous" or auxiliary_is_nous:
         merged_extra.setdefault("tags", []).extend(_nous_portal_tags())
+    # Enable GLM thinking mode for Z.AI vision calls (messages contain images).
+    # Significantly improves per-tile classification accuracy on CAPTCHAs,
+    # diagram reading, fine-grained object detection. Non-vision calls (pure
+    # text, e.g. compression summaries on glm-5.1) are unaffected — we only
+    # enable thinking when messages carry image content.
+    if provider == "zai" and "thinking" not in merged_extra:
+        has_image = any(
+            isinstance(m.get("content"), list)
+            and any(
+                isinstance(p, dict) and p.get("type") == "image_url"
+                for p in m.get("content", [])
+            )
+            for m in messages
+        )
+        if has_image:
+            merged_extra["thinking"] = {"type": "enabled"}
     if merged_extra:
         kwargs["extra_body"] = merged_extra
 
