@@ -4562,18 +4562,17 @@ def _build_call_kwargs(
     # Significantly improves per-tile classification accuracy on CAPTCHAs,
     # diagram reading, fine-grained object detection. Non-vision calls (pure
     # text, e.g. compression summaries on glm-5.1) are unaffected — we only
-    # enable thinking when messages carry image content.
+    # enable thinking for ALL zai calls (vision, compression, session_search,
+    # flush_memories, title_generation, etc.). GLM-5.x and GLM-4.7 family are
+    # thinking-capable; reasoning improves quality for summarization and
+    # memory distillation (lossy without it). Caller can still override by
+    # explicitly setting "thinking" in extra_body.
+    #
+    # Cost note: the reasoning-aware compression fix (commit db133497) means
+    # reasoning tokens no longer inflate the context-window trigger, so this
+    # doesn't cause premature compression cascades.
     if provider == "zai" and "thinking" not in merged_extra:
-        has_image = any(
-            isinstance(m.get("content"), list)
-            and any(
-                isinstance(p, dict) and p.get("type") == "image_url"
-                for p in m.get("content", [])
-            )
-            for m in messages
-        )
-        if has_image:
-            merged_extra["thinking"] = {"type": "enabled"}
+        merged_extra["thinking"] = {"type": "enabled"}
     if merged_extra:
         kwargs["extra_body"] = merged_extra
 
