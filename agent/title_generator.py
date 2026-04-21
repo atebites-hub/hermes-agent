@@ -54,10 +54,16 @@ def generate_title(
     ]
 
     try:
+        # Upstream raised max_tokens 30 -> 500 (f41031af) for reasoning models.
+        # We push further to 4096 because thinking is always-on for zai (see
+        # auxiliary_client.py _build_call_kwargs), and GLM-4.7 / 5.1 can spend
+        # 500-2000 tokens on hidden reasoning even for trivial title tasks.
+        # The model stops thinking once it has an answer (doesn't pad to the
+        # cap), so real cost is ~200-1500 reasoning tokens, not 4096/call.
         response = call_llm(
             task="title_generation",
             messages=messages,
-            max_tokens=500,
+            max_tokens=4096,
             temperature=0.3,
             timeout=timeout,
             main_runtime=main_runtime,
