@@ -1267,6 +1267,17 @@ class CredentialPool:
             if entry is None:
                 return None
             _label = entry.label or entry.id[:8]
+            other_available = [
+                e for e in self._available_entries()
+                if e.id != entry.id
+            ]
+            if not other_available:
+                logger.info(
+                    "credential pool: %s hit status=%s but no rotation target "
+                    "available — keeping active, outer retry loop will back off",
+                    _label, status_code,
+                )
+                return None
             logger.info(
                 "credential pool: marking %s exhausted (status=%s), rotating",
                 _label, status_code,
