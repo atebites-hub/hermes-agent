@@ -1274,8 +1274,9 @@ class CredentialPool:
             if not other_available:
                 logger.info(
                     "credential pool: %s hit status=%s but no rotation target "
-                    "available — keeping active, outer retry loop will back off",
-                    _label, status_code,
+                    "available — keeping active, outer retry loop will back off "
+                    "| error_context=%r",
+                    _label, status_code, error_context,
                 )
                 return None
             logger.info(
