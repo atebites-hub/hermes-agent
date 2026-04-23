@@ -3570,6 +3570,8 @@ def resolve_provider_client(
             # "Z.AI Vision Hack" page.
             headers["X-Title"] = "4.5V MCP Local"
             headers["Accept-Language"] = "en-US,en"
+            # Drop OpenAI-SDK fingerprint on a non-OpenAI endpoint.
+            headers["User-Agent"] = "hermes-gateway/0.10.0"
         else:
             # Fall back to profile.default_headers for providers that declare
             # client-level attribution headers on their profile (e.g. GMI
@@ -4737,9 +4739,11 @@ def call_llm(
 
     # Handle unsupported temperature, max_tokens vs max_completion_tokens retry,
     # then payment fallback.
+    from agent.zai_rate_guard import zai_guard
     try:
-        return _validate_llm_response(
-            client.chat.completions.create(**kwargs), task)
+        with zai_guard(resolved_provider):
+            return _validate_llm_response(
+                client.chat.completions.create(**kwargs), task)
     except Exception as first_err:
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
@@ -4787,8 +4791,9 @@ def call_llm(
             kwargs.pop("max_tokens", None)
             kwargs.pop("max_completion_tokens", None)
             try:
-                return _validate_llm_response(
-                    client.chat.completions.create(**kwargs), task)
+                with zai_guard(resolved_provider):
+                    return _validate_llm_response(
+                        client.chat.completions.create(**kwargs), task)
             except Exception as retry_err:
                 # If the max_tokens retry also hits a payment or connection
                 # error, fall through to the fallback chain below.
@@ -4953,8 +4958,9 @@ def call_llm(
                     tools=tools, timeout=effective_timeout,
                     extra_body=effective_extra_body,
                     base_url=str(getattr(fb_client, "base_url", "") or ""))
-                return _validate_llm_response(
-                    fb_client.chat.completions.create(**fb_kwargs), task)
+                with zai_guard(fb_label):
+                    return _validate_llm_response(
+                        fb_client.chat.completions.create(**fb_kwargs), task)
             # All fallback layers exhausted — emit a single user-visible
             # warning so the operator knows aux task is about to fail.
             # (#26882) The error itself is re-raised below.
