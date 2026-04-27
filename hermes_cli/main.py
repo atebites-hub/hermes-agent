@@ -8205,33 +8205,52 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # the bad commit and the fix landing).
         pre_pull_sha = _capture_head_sha(git_cmd, PROJECT_ROOT)
         try:
-            pull_result = subprocess.run(
-                git_cmd + ["pull", "--ff-only", "origin", branch],
-                cwd=PROJECT_ROOT,
-                capture_output=True,
-                text=True,
-            )
-            if pull_result.returncode != 0:
-                # ff-only failed — local and remote have diverged (e.g. upstream
-                # force-pushed or rebase).  Since local changes are already
-                # stashed, reset to match the remote exactly.
-                print(
-                    "  ⚠ Fast-forward not possible (history diverged), resetting to match remote..."
-                )
-                reset_result = subprocess.run(
-                    git_cmd + ["reset", "--hard", f"origin/{branch}"],
+            if preserve_branch:
+                # Rebase the feature branch onto fresh origin/main. Conflicts
+                # bail out cleanly — abort restores the working tree, the user
+                # is told what to fix manually, and the stashed local changes
+                # are preserved so nothing is lost.
+                rebase_result = subprocess.run(
+                    git_cmd + ["rebase", f"origin/{branch}"],
                     cwd=PROJECT_ROOT,
                     capture_output=True,
                     text=True,
                 )
-                if reset_result.returncode != 0:
-                    print(f"✗ Failed to reset to origin/{branch}.")
-                    if reset_result.stderr.strip():
-                        print(f"  {reset_result.stderr.strip()}")
-                    print(
-                        "  Try manually: git fetch origin && git reset --hard origin/main"
-                    )
+                if rebase_result.returncode != 0:
+                    print(f"✗ Rebase of '{current_branch}' onto origin/{branch} hit conflicts.")
+                    print(f"  Working tree restored to pre-rebase state.")
+                    if auto_stash_ref is not None:
+                        print(f"  Local changes preserved in stash: {auto_stash_ref}")
+                    print(f"  Resolve manually: cd {PROJECT_ROOT}; git rebase origin/{branch}")
                     sys.exit(1)
+            else:
+                pull_result = subprocess.run(
+                    git_cmd + ["pull", "--ff-only", "origin", branch],
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                if pull_result.returncode != 0:
+                    # ff-only failed — local and remote have diverged (e.g. upstream
+                    # force-pushed or rebase).  Since local changes are already
+                    # stashed, reset to match the remote exactly.
+                    print(
+                        "  ⚠ Fast-forward not possible (history diverged), resetting to match remote..."
+                    )
+                    reset_result = subprocess.run(
+                        git_cmd + ["reset", "--hard", f"origin/{branch}"],
+                        cwd=PROJECT_ROOT,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if reset_result.returncode != 0:
+                        print(f"✗ Failed to reset to origin/{branch}.")
+                        if reset_result.stderr.strip():
+                            print(f"  {reset_result.stderr.strip()}")
+                        print(
+                            "  Try manually: git fetch origin && git reset --hard origin/main"
+                        )
+                        sys.exit(1)
 
             # Post-pull syntax guard: validate critical-path files actually
             # parse before declaring the update successful. If a bad commit
