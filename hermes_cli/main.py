@@ -8120,14 +8120,17 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Always update against main
         branch = "main"
 
-        # If user is on a non-main branch or detached HEAD, switch to main
-        if current_branch != "main":
-            label = (
-                "detached HEAD"
-                if current_branch == "HEAD"
-                else f"branch '{current_branch}'"
-            )
-            print(f"  ⚠ Currently on {label} — switching to main for update...")
+        # Preserve feature branches: rebase them onto fresh origin/main rather
+        # than checking out main and dropping the user's patches. The original
+        # behaviour (git checkout main here, git pull --ff-only below) was
+        # the cause of the 2026-04-23 outage — /update silently put the
+        # repo back on plain upstream and the gateway died running unpatched
+        # code. Detached HEAD still falls back to the old "switch to main"
+        # path because there's no branch to preserve.
+        preserve_branch = current_branch not in ("main", "HEAD")
+
+        if current_branch == "HEAD":
+            print(f"  ⚠ Currently on detached HEAD — switching to main for update...")
             # Stash before checkout so uncommitted work isn't lost
             auto_stash_ref = _stash_local_changes_if_needed(git_cmd, PROJECT_ROOT)
             subprocess.run(
@@ -8137,6 +8140,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 text=True,
                 check=True,
             )
+        elif preserve_branch:
+            print(f"  → Currently on '{current_branch}' — rebasing onto origin/main to keep local patches")
+            auto_stash_ref = _stash_local_changes_if_needed(git_cmd, PROJECT_ROOT)
         else:
             auto_stash_ref = _stash_local_changes_if_needed(git_cmd, PROJECT_ROOT)
 
